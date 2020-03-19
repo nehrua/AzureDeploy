@@ -1,0 +1,22 @@
+
+parameters:
+  servicePrin:
+  deployRg: 
+  location: 
+  csmFile: 
+  csmParamFile: 
+  deploymentName: 
+
+steps:
+
+- task: AzureResourceGroupDeployment@2
+  displayName: 'ARM Template Deployment'
+  inputs:
+    azureSubscription: ${{ parameters.servicePrin }}
+    resourceGroupName: ${{ parameters.deployRg }}
+    location: ${{ parameters.location }}
+    templateLocation: 'Linked artifact'
+    csmFile: $(System.ArtifactsDirectory)/ArmTemplates/${{ parameters.csmFile }}
+    csmParametersFile: $(System.ArtifactsDirectory)/ArmTemplates/${{ parameters.csmParamFile }}
+    deploymentMode: 'Incremental'
+    deploymentName: ${{ parameters.deploymentName }}

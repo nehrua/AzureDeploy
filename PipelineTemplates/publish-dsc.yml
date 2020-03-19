@@ -1,0 +1,29 @@
+
+parameters:
+  servicePrin: 
+  modules: 
+  dscConfig: 
+  saName: 
+  container:
+  saRgName: 
+
+steps:
+
+- task: AzurePowerShell@4
+  displayName: 'Publish DSC Configurations'
+  inputs:
+    azureSubscription: ${{ parameters.servicePrin }}
+    scriptType: inlineScript
+    inline: |
+      # Installs required modules and publishes DSC configurations
+      Install-Module ${{ parameters.modules }} -Scope CurrentUser -Force
+      Publish-AzVMDscConfiguration `
+      -ConfigurationPath $(System.DefaultWorkingDirectory)/DSC/${{ parameters.dscConfig }} `
+      -ResourceGroupName ${{ parameters.saRgName }} `
+      -StorageAccountName ${{ parameters.saName }} `
+      -ContainerName ${{ parameters.container }} `
+      -Force
+    errorActionPreference: stop
+    failOnStandardError: true
+    azurePowerShellVersion: latestVersion
+    

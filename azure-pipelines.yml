@@ -1,0 +1,254 @@
+
+trigger:
+- master
+
+variables:
+  deployMode: 'Incremental'
+  deployRg: '<rg name>'
+  storageAcctRg: '<storage acct rg>'
+  storageAcct: '<storage acct name>'
+  container: '<container>'
+  servicePrin: 'ADO service connection'
+  location: 'East US'
+  archSaName: '<storage acct name>'
+  archSaRG: '<storage acct rg>'
+  archContainer: '<container>'
+
+stages:
+
+- stage: InfraBuild
+  jobs:
+  - job: BuildJob
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+  
+    - template: PipelineTemplates/validate-ArmTemplate.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        deployRg: $(deployRg)
+        location: $(location)
+        csmFile: 'Server.json'
+        csmParamFile: 'Server.parameters.json'
+
+    - template: PipelineTemplates/validate-ArmTemplate.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        deployRg: $(deployRg)
+        location: $(location)
+        csmFile: 'Server.json'
+        csmParamFile: 'Server.parameters.json'
+  
+    - template: PipelineTemplates/validate-ArmTemplate.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        deployRg: $(deployRg)
+        location: $(location)
+        csmFile: 'DomainJoin.json'
+        csmParamFile: 'DomainJoin.parameters.json'
+  
+    - template: PipelineTemplates/validate-ArmTemplate.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        deployRg: $(deployRg)
+        location: $(location)
+        csmFile: 'DomainJoin.json'
+        csmParamFile: 'DomainJoin.parameters.json'
+        
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifact: ArmTemplates'
+      inputs:
+        pathtoPublish: $(System.DefaultWorkingDirectory)/ARMTemplates/Server
+        artifactName: 'ArmTemplates'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Artifact: Scripts'
+      inputs:
+        pathtoPublish: $(System.DefaultWorkingDirectory)/Scripts
+        artifactName: 'Scripts'
+
+    - template: PipelineTemplates/publish-dsc.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        modules: 'StorageDsc'
+        dscConfig: 'FormatDrives_srp_db_config.ps1'
+        saName: $(storageAcct)
+        container: $(container)
+        saRgName: $(storageAcctRg)
+
+    - template: PipelineTemplates/publish-dsc.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        modules: 'StorageDsc'
+        dscConfig: 'FormatDrives_srp_web_config.ps1'
+        saName: $(storageAcct)
+        container: $(container)
+        saRgName: $(storageAcctRg)
+
+    - template: PipelineTemplates/publish-dsc.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        modules: 'SqlServerDsc'
+        dscConfig: 'SqlInstall_config.ps1'
+        saName: $(storageAcct)
+        container: $(container)
+        saRgName: $(storageAcctRg)
+
+    - template: PipelineTemplates/publish-dsc.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        modules: 'WindowsFeature'
+        dscConfig: 'IisInstall_config.ps1'
+        saName: $(storageAcct)
+        container: $(container)
+        saRgName: $(storageAcctRg)
+
+- stage: InfraRelease
+  jobs:
+  - job: ReleaseJob
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+
+    - task: DownloadBuildArtifacts@0
+      inputs:
+        buildType: 'current'
+        artifactName: 'ArmTemplates'
+        downloadPath: '$(System.ArtifactsDirectory)'
+
+    - task: DownloadBuildArtifacts@0
+      inputs:
+        buildType: 'current'
+        artifactName: 'Scripts'
+        downloadPath: '$(System.ArtifactsDirectory)'
+
+    - template: PipelineTemplates/deploy-ArmTemplate.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        deployRg: $(deployRg)
+        location: $(location)
+        csmFile: 'Server.json'
+        csmParamFile: 'Server.parameters.json'
+        deploymentName: 'SRVDBServerDeploy'
+
+    - template: PipelineTemplates/deploy-ArmTemplate.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        deployRg: $(deployRg)
+        location: $(location)
+        csmFile: 'Server.json'
+        csmParamFile: 'Server.parameters.json'
+        deploymentName: 'SRVWebServerDeploy'
+
+    - template: PipelineTemplates/deploy-dsc.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        rgName: $(deployRg)
+        vmName: 'SRPDBSrv'
+        archBlob: 'FormatDrives_srp_db_config.ps1.zip'
+        archSaName: $(archSaName)
+        archSaRg: $(archSaRg)
+        container: $(archContainer)
+        configName: 'FormatDrives'
+
+    - template: PipelineTemplates/deploy-dsc.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        rgName: $(deployRg)
+        vmName: 'SRPWebSrv'
+        archBlob: 'FormatDrives_srp_web_config.ps1.zip'
+        archSaName: $(archSaName)
+        archSaRg: $(archSaRg)
+        container: $(archContainer)
+        configName: 'FormatDrives'
+
+    - template: PipelineTemplates/deploy-ArmTemplate.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        deployRg: $(deployRg)
+        location: $(location)
+        csmFile: 'DomainJoin.json'
+        csmParamFile: 'DomainJoin.parameters.json'
+        deploymentName: 'DBDomainJoin'
+
+    - template: PipelineTemplates/deploy-ArmTemplate.yml
+      parameters:
+        servicePrin: $(servicePrin)
+        deployRg: $(deployRg)
+        location: $(location)
+        csmFile: 'DomainJoin.json'
+        csmParamFile: 'DomainJoin.parameters.json'
+        deploymentName: 'WebDomainJoin'
+
+    - task: AzurePowerShell@4
+      displayName: 'DSC - Install SQL'
+      inputs:
+        azureSubscription: $(servicePrin)
+        scriptType: inlinescript
+        inline: |
+          # Get SQL install credential info from KeyVault
+          $username = (Get-AzKeyVaultSecret -VaultName <vault name> -Name <secret name>).SecretValueText
+          $password = (Get-AzKeyVaultSecret -VaultName <vault name> -Name <secret name>).SecretValue
+          $cred = New-Object System.Management.Automation.PSCredential ($username, $password)
+          $vm = Get-AzVM | where {$_.name -eq <vm name>}
+          
+          # Installs DSC Azure VM extension and applies the configuration
+          Set-AzVMDscExtension `
+          -Version '2.76' `
+          -ResourceGroupName $(deployRg) `
+          -VMName $vm.Name `
+          -ArchiveBlobName 'SqlInstall_config.ps1.zip' `
+          -ArchiveStorageAccountName $(archSaName) `
+          -ArchiveResourceGroupName $(archSaRG) `
+          -ArchiveContainerName $(archContainer) `
+          -ConfigurationName 'SQLInstall' `
+          -ConfigurationArgument @{'SqlInstallCredential' = $cred; 'SqlServiceCredential' = $cred} `
+          -Force
+          #-ConfigurationData $(System.DefaultWorkingDirectory)/DSC/sqlInstall_data.psd1 `
+
+          #Adds SQL IaaS extension enabling PAYG licensing
+          $vmExt = Get-AzVMExtension -ResourceGroupName $vm.ResourceGroupName -VMName $vm.Name | where {$_.Name -eq 'SqlIaasExtension'}
+          if ($null -eq $vmExt)
+          {
+            try
+            {
+              New-AzSqlVM -Name $vm.Name -ResourceGroupName $vm.ResourceGroupName -SqlManagementType 'Full' -LicenseType 'PAYG' -Location $vm.Location
+            }
+            catch
+            {
+              Write-Warning "$vm.Name is already registered as a SqlVM."
+            }
+          }
+        errorActionPreference: stop
+        failOnStandardError: true
+        azurePowerShellVersion: latestVersion
+
+    - task: AzurePowerShell@4
+      displayName: 'DSC - Install IIS'
+      inputs:
+        azureSubscription: $(servicePrin)
+        scriptType: inlinescript
+        inline: |          
+          # Installs DSC Azure VM extension and applies the configuration
+          Set-AzVMDscExtension `
+          -Version '2.76' `
+          -ResourceGroupName $(deployRg) `
+          -VMName 'SRPWebSrv' `
+          -ArchiveBlobName 'IisInstall_config.ps1.zip' `
+          -ArchiveStorageAccountName $(archSaName) `
+          -ArchiveResourceGroupName $(archSaRG) `
+          -ArchiveContainerName $(archContainer) `
+          -ConfigurationName 'IISInstall' `
+          -Force
+        errorActionPreference: stop
+        failOnStandardError: true
+        azurePowerShellVersion: latestVersion
+
+    - task: AzurePowerShell@4
+      displayName: 'PowerShell: Set Private IP to Static'
+      inputs:
+        azureSubscription: $(servicePrin)
+        scriptPath: '$(System.ArtifactsDirectory)/Scripts/SetStaticPrivateIP.ps1'
+        scriptArguments: -RG $(deployRg)
+        azurePowerShellVersion: LatestVersion
+        errorActionPreference: stop
